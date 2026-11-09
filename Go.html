@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Go</title>
+<style>
+:root{--bg:#eef1ee;--ink:#1b241f;--muted:#5d6b63;--wood:#d8b26a;--grid:#4a3a1c;--panel:#fff;--line:#b8c2bb;--blk:#141414;--wht:#f7f7f2;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1511;--ink:#e6eee9;--muted:#94a59b;--wood:#9b7a3d;--grid:#2a2010;--panel:#18211b;--line:#33423a;--blk:#0a0a0a;--wht:#ecece6;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1511;--ink:#e6eee9;--muted:#94a59b;--wood:#9b7a3d;--grid:#2a2010;--panel:#18211b;--line:#33423a;--blk:#0a0a0a;--wht:#ecece6;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Georgia,"Times New Roman",serif;min-height:100vh;display:flex;justify-content:center;padding:20px 14px}
+main{width:100%;max-width:520px}
+h1{font-size:2rem;margin:0 0 4px}
+p.sub{margin:0 0 14px;color:var(--muted);line-height:1.45}
+svg{width:100%;height:auto;display:block;border-radius:10px;touch-action:manipulation;cursor:pointer}
+#status{margin:14px 0 4px;font-size:1.15rem;min-height:1.6em}
+#info{color:var(--muted);font-size:.92rem;margin-bottom:14px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button.ui,select{font:inherit;font-size:.95rem;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button.ui:disabled{opacity:.5;cursor:default}
+button.ui:focus-visible,select:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+details{margin-top:18px;color:var(--muted);font-size:.92rem;line-height:1.5}
+summary{cursor:pointer;color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+<h1>Go</h1>
+<p class="sub">Surround stones to capture them and claim territory. You play black and move first.</p>
+<svg id="svg" role="img" aria-label="Go board"></svg>
+<div id="status" aria-live="polite"></div>
+<div id="info"></div>
+<div class="row">
+<button class="ui" id="pass">Pass</button>
+<button class="ui" id="new">New game</button>
+<label>Board size
+<select id="size"><option value="7">7 × 7</option><option value="9" selected>9 × 9</option><option value="13">13 × 13</option></select>
+</label>
+</div>
+<details>
+<summary>How to play</summary>
+<p>Click an intersection to place a black stone. A stone or connected group with no empty neighbouring points is captured. You can’t make a move that leaves your own group without liberties, unless it captures, and you can’t repeat an earlier board position. When you have nothing useful left to play, press Pass. The game ends when both sides pass. Each side scores its stones plus the empty areas it alone surrounds, and white gets 6.5 points of komi to make up for moving second.</p>
+</details>
+</main>
+<script>
+(function(){
+var N=9,B,turn,hist,passes,caps,over,last,busy,hover=-1,KOMI=6.5,CS=40,M=30;
+var svg=document.getElementById("svg"),st=document.getElementById("status"),info=document.getElementById("info"),passBtn=document.getElementById("pass");
+function nb(i){var r=(i/N)|0,c=i%N,a=[];if(r>0)a.push(i-N);if(r<N-1)a.push(i+N);if(c>0)a.push(i-1);if(c<N-1)a.push(i+1);return a}
+function grp(b,i){var col=b[i],s=[i],seen={},libs={},q=[i];seen[i]=1;
+  while(q.length){var x=q.pop();nb(x).forEach(function(y){if(b[y]===0)libs[y]=1;else if(b[y]===col&&!seen[y]){seen[y]=1;s.push(y);q.push(y)}})}
+  return{s:s,libs:Object.keys(libs).length}}
+function tryMove(b,i,col){
+  if(b[i])return null;
+  var d=b.slice(),cap=0;d[i]=col;
+  nb(i).forEach(function(y){if(d[y]===3-col){var g=grp(d,y);if(g.libs===0){g.s.forEach(function(k){d[k]=0});cap+=g.s.length}}});
+  if(grp(d,i).libs===0)return null;
+  if(hist[d.join("")])return null;
+  return{b:d,cap:cap}}
+function territory(b){
+  var own=new Array(N*N).fill(0),seen={},sc={1:0,2:0},i;
+  for(i=0;i<N*N;i++){
+    if(b[i]){sc[b[i]]++;continue}
+    if(seen[i])continue;
+    var reg=[i],q=[i],bord={};seen[i]=1;
+    while(q.length){var x=q.pop();nb(x).forEach(function(y){if(b[y])bord[b[y]]=1;else if(!seen[y]){seen[y]=1;reg.push(y);q.push(y)}})}
+    var k=Object.keys(bord);
+    if(k.length===1){sc[k[0]]+=reg.length;reg.forEach(function(r){own[r]=+k[0]})}
+  }
+  return{sc:sc,own:own}}
+function stars(){return N===9?[[2,2],[6,2],[2,6],[6,6],[4,4]]:N===13?[[3,3],[9,3],[3,9],[9,9],[6,6]]:[[3,3]]}
+function render(){
+  var W=(N-1)*CS+2*M,h="",i,k;
+  svg.setAttribute("viewBox","0 0 "+W+" "+W);
+  h+='<rect width="'+W+'" height="'+W+'" fill="var(--wood)"/>';
+  for(i=0;i<N;i++){var p=M+i*CS;
+    h+='<line x1="'+M+'" y1="'+p+'" x2="'+(W-M)+'" y2="'+p+'" stroke="var(--grid)" stroke-width="1.2"/>';
+    h+='<line x1="'+p+'" y1="'+M+'" x2="'+p+'" y2="'+(W-M)+'" stroke="var(--grid)" stroke-width="1.2"/>'}
+  stars().forEach(function(s){h+='<circle cx="'+(M+s[0]*CS)+'" cy="'+(M+s[1]*CS)+'" r="3.5" fill="var(--grid)"/>'});
+  var T=over?territory(B).own:null;
+  for(i=0;i<N*N;i++){
+    var x=M+(i%N)*CS,y=M+((i/N)|0)*CS;
+    if(B[i]){
+      h+='<circle cx="'+x+'" cy="'+y+'" r="'+(CS*.47)+'" fill="'+(B[i]===1?"var(--blk)":"var(--wht)")+'" stroke="#000" stroke-opacity=".55" stroke-width="1"/>';
+      if(i===last)h+='<circle cx="'+x+'" cy="'+y+'" r="6" fill="none" stroke="'+(B[i]===1?"#fff":"#000")+'" stroke-width="2"/>';
+    }else if(T&&T[i]){
+      h+='<rect x="'+(x-6)+'" y="'+(y-6)+'" width="12" height="12" fill="'+(T[i]===1?"var(--blk)":"var(--wht)")+'" stroke="#000" stroke-opacity=".5"/>';
+    }
+  }
+  if(!over&&!busy&&turn===1&&hover>=0&&!B[hover]&&tryMove(B,hover,1))
+    h+='<circle cx="'+(M+(hover%N)*CS)+'" cy="'+(M+((hover/N)|0)*CS)+'" r="'+(CS*.47)+'" fill="var(--blk)" opacity=".4"/>';
+  svg.innerHTML=h;
+  var sc=territory(B).sc;
+  info.textContent="Captured by you: "+caps[1]+". Captured by the computer: "+caps[2]+". Area now: you "+sc[1]+", computer "+(sc[2]+KOMI)+" with komi.";
+  passBtn.disabled=over||busy||turn!==1;
+}
+function idx(e){
+  var r=svg.getBoundingClientRect(),W=(N-1)*CS+2*M,
+  x=(e.clientX-r.left)/r.width*W,y=(e.clientY-r.top)/r.height*W,
+  c=Math.round((x-M)/CS),rw=Math.round((y-M)/CS);
+  if(c<0||rw<0||c>=N||rw>=N)return -1;return rw*N+c}
+svg.addEventListener("pointermove",function(e){var i=idx(e);if(i!==hover){hover=i;render()}});
+svg.addEventListener("pointerleave",function(){hover=-1;render()});
+svg.addEventListener("click",function(e){
+  if(over||busy||turn!==1)return;
+  var i=idx(e),m=i<0?null:tryMove(B,i,1);
+  if(!m){st.textContent="That point isn’t a legal move. Try another.";return}
+  apply(i,m,1);
+});
+function apply(i,m,col){
+  B=m.b;caps[col]+=m.cap;hist[B.join("")]=1;passes=0;last=i;
+  next(3-col);
+}
+function next(t){
+  turn=t;
+  if(t===2){busy=true;st.textContent="Computer is thinking…";render();setTimeout(ai,550)}
+  else{busy=false;st.textContent="Your turn: place a black stone or pass.";render()}
+}
+function doPass(col){
+  passes++;last=-1;
+  if(passes>=2){finish();return}
+  if(col===1)st.textContent="You passed.";
+  next(3-col);
+}
+function finish(){
+  over=true;busy=false;
+  var sc=territory(B).sc,w=sc[2]+KOMI,b=sc[1];
+  st.textContent=b>w?"You win! Black "+b+", white "+w+".":"The computer wins. White "+w+", black "+b+".";
+  render();
+}
+passBtn.addEventListener("click",function(){if(!over&&!busy&&turn===1)doPass(1)});
+function ai(){
+  var best=-1e9,bi=-1,bm=null,i,mid=(N-1)/2;
+  if(passes===1){var s0=territory(B).sc;if(s0[2]+KOMI>s0[1]){doPass(2);return}}
+  for(i=0;i<N*N;i++){
+    var m=tryMove(B,i,2);if(!m)continue;
+    var s=m.cap*8+Math.random()*1.2,g=grp(m.b,i),ns=nb(i);
+    s+=Math.min(g.libs,4);
+    if(g.libs===1&&m.cap===0)s-=8;
+    if(ns.every(function(y){return B[y]===2})&&m.cap===0)s-=30;
+    ns.forEach(function(y){
+      if(m.b[y]===1){var og=grp(m.b,y);if(og.libs===1)s+=5;else if(og.libs===2)s+=1}
+      if(B[y]===2&&grp(B,y).libs===1&&g.libs>1)s+=7;
+    });
+    if(ns.some(function(y){return B[y]}))s+=1.5;
+    s-=(Math.abs((i/N|0)-mid)+Math.abs(i%N-mid))*.25;
+    if(s>best){best=s;bi=i;bm=m}
+  }
+  if(bi<0||best<-10){doPass(2);return}
+  st.textContent="";
+  apply(bi,bm,2);
+}
+function start(){
+  N=+document.getElementById("size").value;
+  B=new Array(N*N).fill(0);hist={};hist[B.join("")]=1;
+  passes=0;caps={1:0,2:0};over=false;busy=false;last=-1;turn=1;hover=-1;
+  st.textContent="Your turn: place a black stone or pass.";
+  render();
+}
+document.getElementById("new").addEventListener("click",start);
+document.getElementById("size").addEventListener("change",start);
+start();
+})();
+</script>
+</body>
+</html>
