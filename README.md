@@ -1,7 +1,7 @@
 # Go — Browser-Based Board Game
 
 <p align="center">
-  <img src="assets/go-demo.svg" alt="Animated demo of the Go game: placing stones, capturing, and scoring" width="440">
+  <img src="/go-demo.svg" alt="Animated demo of the Go game: placing stones, capturing, and scoring" width="440">
 </p>
 
 A lightweight, single-file implementation of the classic strategy board game **Go** (also known as **Baduk** or **Weiqi**). Play as Black against a simple computer-controlled White opponent directly in your browser.
